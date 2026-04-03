@@ -31,47 +31,63 @@ export function messagesToIFlowPrompt(messages: ChatCompletionMessage[]): string
 
 /**
  * 提取 System 消息和 User 消息
- * 兼容 opencode 的非标准格式（role 可能不是 user，但包含实际请求内容）
+ * 兼容 opencode 的各种消息格式（包括 plan 模式）
  */
 export function extractMessages(messages: ChatCompletionMessage[]): {
   systemMessage: string | undefined;
   userMessage: string;
 } {
+  console.log('[extractMessages] 原始消息:', JSON.stringify(messages.map(m => ({ role: m.role, contentLength: typeof m.content === 'string' ? m.content.length : 0 }))));
+  
   let systemMessage: string | undefined;
   let userMessage = '';
 
-  // 第一步：查找标准格式的 system 和 user 消息
+  // 第一步：查找 system 消息
   for (const msg of messages) {
     if (typeof msg.content !== 'string') continue;
-
     if (msg.role === 'system') {
       systemMessage = msg.content;
-    } else if (msg.role === 'user') {
-      userMessage = msg.content;
     }
   }
 
-  // 第二步：如果没有找到 user 消息，尝试其他角色（developer, assistant 等）
+  // 第二步：查找有内容的 user 消息（plan 模式下 user 可能是空的）
+  for (const msg of messages) {
+    if (typeof msg.content !== 'string') continue;
+    if (msg.role === 'user' && msg.content.trim()) {
+      userMessage = msg.content;
+      break;
+    }
+  }
+
+  // 第三步：如果没有找到有内容的 user 消息，尝试其他非 system 角色
   if (!userMessage) {
     for (const msg of messages) {
       if (typeof msg.content !== 'string') continue;
-      if (msg.role !== 'system' && msg.content.trim()) {
+      const role = msg.role || 'unknown';
+      // 任何非 system 角色且有内容的都可以作为 user 消息
+      if (role !== 'system' && msg.content.trim()) {
         userMessage = msg.content;
+        console.log(`[extractMessages] 使用 role="${role}" 作为 user 消息`);
         break;
       }
     }
   }
 
-  // 第三步：如果还是没有，拼接所有非 system 消息
+  // 第四步：如果还是没有，使用最后一条非 system 消息（即使 role 是 user 但内容为空的情况）
   if (!userMessage) {
-    const nonSystemContents = messages
-      .filter(msg => msg.role !== 'system' && typeof msg.content === 'string')
-      .map(msg => msg.content);
-    if (nonSystemContents.length > 0) {
-      userMessage = nonSystemContents.join('\n\n');
+    const nonSystemMessages = messages
+      .filter(msg => msg.role !== 'system' && typeof msg.content === 'string');
+    if (nonSystemMessages.length > 0) {
+      // 使用最后一条非 system 消息
+      const lastMsg = nonSystemMessages[nonSystemMessages.length - 1];
+      if (lastMsg.content) {
+        userMessage = lastMsg.content;
+        console.log(`[extractMessages] 使用最后一条非 system 消息, role="${lastMsg.role}"`);
+      }
     }
   }
 
+  console.log(`[extractMessages] 结果: system=${systemMessage ? '有' : '无'}, user=${userMessage ? '有' : '无'}, user长度=${userMessage.length}`);
   return { systemMessage, userMessage };
 }
 
@@ -143,10 +159,6 @@ export function formatSSE(data: unknown): string {
 
 export const SSE_DONE = 'data: [DONE]\n\n';
 
-/**
- * iFlow 支持的模型列表
- * 基于用户实际的 iFlow CLI 配置
- */
 export const AVAILABLE_MODELS = [
   { id: 'glm-4.7', name: 'GLM-4.7 (Default)' },
   { id: 'iflow-rome-30ba3b', name: 'iFlow-ROME-30BA3B (Preview)' },

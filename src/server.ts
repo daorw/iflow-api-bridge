@@ -51,14 +51,9 @@ export class IFlowAPIServer {
     this.setupErrorHandler();
   }
 
-  /**
-   * 设置中间件
-   */
   private setupMiddleware(): void {
-    // JSON 解析
     this.app.use(express.json({ limit: '10mb' }));
 
-    // CORS
     if (this.options.cors !== false) {
       this.app.use(cors({
         origin: '*',
@@ -67,10 +62,8 @@ export class IFlowAPIServer {
       }));
     }
 
-    // API Key 验证（如果配置了）
     if (this.options.apiKey) {
       this.app.use((req: Request, res: Response, next: NextFunction) => {
-        // 健康检查端点不需要认证
         if (req.path === '/health') {
           return next();
         }
@@ -90,11 +83,7 @@ export class IFlowAPIServer {
     }
   }
 
-  /**
-   * 设置路由
-   */
   private setupRoutes(): void {
-    // 健康检查
     this.app.get('/health', (req: Request, res: Response) => {
       const stats = this.adapter.getStats();
       res.json({
@@ -106,7 +95,6 @@ export class IFlowAPIServer {
       });
     });
 
-    // 模型列表
     this.app.get('/v1/models', async (req: Request, res: Response) => {
       const response: ModelsResponse = {
         object: 'list',
@@ -120,14 +108,12 @@ export class IFlowAPIServer {
       res.json(response);
     });
 
-    // 聊天完成
     this.app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       console.log(`[${new Date().toISOString()}] 收到聊天请求`);
 
       try {
         const body = req.body as ChatCompletionRequest;
 
-        // 验证请求
         if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
           console.log('请求验证失败: messages 为空');
           return res.status(400).json(this.createError('messages 不能为空', 'invalid_request_error'));
@@ -137,17 +123,22 @@ export class IFlowAPIServer {
         const model = body.model || getDefaultModel();
 
         // 提取 system 和 user 消息
-        const { systemMessage, userMessage } = extractMessages(body.messages);
+        let { systemMessage, userMessage } = extractMessages(body.messages);
+        
+        // 关键修复：如果 user 为空但有 system，使用 system 作为 user 消息（plan 模式兼容）
+        if (!userMessage && systemMessage) {
+          console.log('[Server] user 为空，使用 system 消息作为 user 消息');
+          userMessage = systemMessage;
+          systemMessage = undefined;
+        }
         
         if (!userMessage) {
           return res.status(400).json(this.createError('未找到 user 消息', 'invalid_request_error'));
         }
 
         // 生成或使用已有的 conversation ID
-        // opencode 可能在 header 中传递，或者我们需要生成一个
         let conversationId = req.headers['x-conversation-id'] as string | undefined;
         if (!conversationId) {
-          // 从消息中生成一个稳定的 ID（基于 system + user 消息）
           conversationId = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
         }
 
@@ -166,9 +157,6 @@ export class IFlowAPIServer {
     });
   }
 
-  /**
-   * 处理流式响应
-   */
   private async handleStreamResponse(
     res: Response,
     conversationId: string,
@@ -182,14 +170,12 @@ export class IFlowAPIServer {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    // 设置 5 分钟超时
     const timeout = setTimeout(() => {
       res.write(formatSSE(this.createError('请求超时', 'timeout_error')));
       res.end();
     }, 300000);
 
     try {
-      // 发送开始标记（角色）
       const startChunk: ChatCompletionStreamResponse = {
         id,
         object: 'chat.completion.chunk',
@@ -203,7 +189,6 @@ export class IFlowAPIServer {
       };
       res.write(formatSSE(startChunk));
 
-      // 流式发送内容
       let fullContent = '';
       let isDone = false;
       for await (const chunk of this.adapter.sendMessageStream(conversationId, systemMessage, userMessage)) {
@@ -219,7 +204,6 @@ export class IFlowAPIServer {
             break;
 
           case 'tool_call':
-            // 工具调用信息可以记录日志，但不发送到客户端
             console.log(`工具调用: ${chunk.toolName} - ${chunk.toolStatus}`);
             break;
 
@@ -239,7 +223,6 @@ export class IFlowAPIServer {
         }
       }
 
-      // 发送结束标记
       const endChunk = createStreamChunk(id, model, '', 'stop');
       res.write(formatSSE(endChunk));
       res.write(SSE_DONE);
@@ -253,9 +236,6 @@ export class IFlowAPIServer {
     }
   }
 
-  /**
-   * 处理非流式响应
-   */
   private async handleNonStreamResponse(
     res: Response,
     conversationId: string,
@@ -265,7 +245,6 @@ export class IFlowAPIServer {
   ): Promise<void> {
     const id = generateId();
 
-    // 设置 5 分钟超时
     const timeout = setTimeout(() => {
       res.status(504).json(this.createError('请求超时', 'timeout_error'));
     }, 300000);
@@ -290,7 +269,6 @@ export class IFlowAPIServer {
       const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('处理请求错误:', errorMsg);
       
-      // 区分超时错误和其他错误
       if (errorMsg.includes('超时') || errorMsg.includes('timeout')) {
         res.status(504).json(this.createError(errorMsg, 'timeout_error', 'timeout'));
       } else {
@@ -299,9 +277,6 @@ export class IFlowAPIServer {
     }
   }
 
-  /**
-   * 设置错误处理
-   */
   private setupErrorHandler(): void {
     this.app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
       console.error('服务器错误:', err);
@@ -309,9 +284,6 @@ export class IFlowAPIServer {
     });
   }
 
-  /**
-   * 创建错误响应
-   */
   private createError(message: string, type: string, code: string = 'unknown_error'): ErrorResponse {
     return {
       error: {
@@ -322,16 +294,11 @@ export class IFlowAPIServer {
     };
   }
 
-  /**
-   * 启动服务器
-   */
   async start(): Promise<void> {
-    // 连接 iFlow
     console.log('正在连接 iFlow...');
     await this.adapter.connect();
     console.log('iFlow 连接成功');
 
-    // 启动 HTTP 服务器
     const host = this.options.host || '0.0.0.0';
     const port = this.options.port;
 
@@ -357,9 +324,6 @@ export class IFlowAPIServer {
     });
   }
 
-  /**
-   * 停止服务器
-   */
   async stop(): Promise<void> {
     await this.adapter.disconnect();
   }
