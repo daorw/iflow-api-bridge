@@ -39,6 +39,30 @@ export function messagesToIFlowPrompt(messages: ChatCompletionMessage[]): string
 }
 
 /**
+ * 提取 System 消息和最后一条 User 消息
+ * 用于上下文管理
+ */
+export function extractMessages(messages: ChatCompletionMessage[]): {
+  systemMessage: string | undefined;
+  userMessage: string;
+} {
+  let systemMessage: string | undefined;
+  let userMessage = '';
+
+  for (const msg of messages) {
+    if (typeof msg.content !== 'string') continue;
+
+    if (msg.role === 'system') {
+      systemMessage = msg.content;
+    } else if (msg.role === 'user') {
+      userMessage = msg.content;
+    }
+  }
+
+  return { systemMessage, userMessage };
+}
+
+/**
  * 创建流式响应块
  */
 export function createStreamChunk(

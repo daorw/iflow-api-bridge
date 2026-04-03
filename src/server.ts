@@ -15,7 +15,7 @@ import {
 import {
   generateId,
   getTimestamp,
-  messagesToIFlowPrompt,
+  extractMessages,
   createCompletionResponse,
   createStreamChunk,
   calculateUsage,
@@ -43,6 +43,7 @@ export class IFlowAPIServer {
     this.app = express();
     this.adapter = new IFlowAdapter({
       model: options.model,
+      maxHistoryLength: 20,
     });
 
     this.setupMiddleware();
@@ -95,9 +96,12 @@ export class IFlowAPIServer {
   private setupRoutes(): void {
     // 健康检查
     this.app.get('/health', (req: Request, res: Response) => {
+      const stats = this.adapter.getStats();
       res.json({
         status: 'ok',
         connected: this.adapter.isConnected(),
+        conversations: stats.conversationCount,
+        totalMessages: stats.totalMessages,
         timestamp: new Date().toISOString(),
       });
     });
@@ -119,7 +123,6 @@ export class IFlowAPIServer {
     // 聊天完成
     this.app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       console.log(`[${new Date().toISOString()}] 收到聊天请求`);
-      console.log('请求体:', JSON.stringify(req.body, null, 2));
 
       try {
         const body = req.body as ChatCompletionRequest;
@@ -133,18 +136,28 @@ export class IFlowAPIServer {
         const isStream = body.stream === true;
         const model = body.model || getDefaultModel();
 
-        console.log(`流式: ${isStream}, 模型: ${model}`);
+        // 提取 system 和 user 消息
+        const { systemMessage, userMessage } = extractMessages(body.messages);
+        
+        if (!userMessage) {
+          return res.status(400).json(this.createError('未找到 user 消息', 'invalid_request_error'));
+        }
 
-        // 转换消息为 iFlow 提示词
-        const prompt = messagesToIFlowPrompt(body.messages);
-        console.log('提示词:', prompt.substring(0, 100) + '...');
+        // 生成或使用已有的 conversation ID
+        // opencode 可能在 header 中传递，或者我们需要生成一个
+        let conversationId = req.headers['x-conversation-id'] as string | undefined;
+        if (!conversationId) {
+          // 从消息中生成一个稳定的 ID（基于 system + user 消息）
+          conversationId = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
+        }
+
+        console.log(`会话: ${conversationId}, 流式: ${isStream}, 模型: ${model}`);
+        console.log(`系统消息: ${systemMessage ? '有' : '无'}, 用户消息: ${userMessage.substring(0, 50)}...`);
 
         if (isStream) {
-          console.log('处理流式响应...');
-          await this.handleStreamResponse(res, prompt, model);
+          await this.handleStreamResponse(res, conversationId, systemMessage, userMessage, model);
         } else {
-          console.log('处理非流式响应...');
-          await this.handleNonStreamResponse(res, prompt, model);
+          await this.handleNonStreamResponse(res, conversationId, systemMessage, userMessage, model);
         }
       } catch (error) {
         console.error('处理请求错误:', error);
@@ -156,18 +169,24 @@ export class IFlowAPIServer {
   /**
    * 处理流式响应
    */
-  private async handleStreamResponse(res: Response, prompt: string, model: string): Promise<void> {
+  private async handleStreamResponse(
+    res: Response,
+    conversationId: string,
+    systemMessage: string | undefined,
+    userMessage: string,
+    model: string
+  ): Promise<void> {
     const id = generateId();
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    // 设置 60 秒超时
+    // 设置 5 分钟超时
     const timeout = setTimeout(() => {
       res.write(formatSSE(this.createError('请求超时', 'timeout_error')));
       res.end();
-    }, 60000);
+    }, 300000);
 
     try {
       // 发送开始标记（角色）
@@ -187,7 +206,7 @@ export class IFlowAPIServer {
       // 流式发送内容
       let fullContent = '';
       let isDone = false;
-      for await (const chunk of this.adapter.sendMessageStream(prompt)) {
+      for await (const chunk of this.adapter.sendMessageStream(conversationId, systemMessage, userMessage)) {
         if (isDone) break;
 
         switch (chunk.type) {
@@ -205,7 +224,6 @@ export class IFlowAPIServer {
             break;
 
           case 'done':
-            // 收到完成信号，标记结束
             isDone = true;
             break;
 
@@ -238,19 +256,25 @@ export class IFlowAPIServer {
   /**
    * 处理非流式响应
    */
-  private async handleNonStreamResponse(res: Response, prompt: string, model: string): Promise<void> {
+  private async handleNonStreamResponse(
+    res: Response,
+    conversationId: string,
+    systemMessage: string | undefined,
+    userMessage: string,
+    model: string
+  ): Promise<void> {
     const id = generateId();
 
-    // 设置 60 秒超时
+    // 设置 5 分钟超时
     const timeout = setTimeout(() => {
       res.status(504).json(this.createError('请求超时', 'timeout_error'));
-    }, 60000);
+    }, 300000);
 
     try {
-      const response = await this.adapter.sendMessage(prompt);
+      const response = await this.adapter.sendMessage(conversationId, systemMessage, userMessage);
       clearTimeout(timeout);
 
-      const usage = calculateUsage(prompt, response.content);
+      const usage = calculateUsage(userMessage, response.content);
 
       const completionResponse = createCompletionResponse(
         id,
@@ -317,6 +341,7 @@ export class IFlowAPIServer {
         console.log(`\n🚀 iFlow API 桥接服务已启动`);
         console.log(`📍 服务地址: http://${host}:${port}`);
         console.log(`🤖 使用模型: ${model}`);
+        console.log(`💬 支持上下文管理: 是`);
         console.log(`🔗 OpenAI API: http://${host}:${port}/v1/chat/completions`);
         console.log(`📋 模型列表: http://${host}:${port}/v1/models`);
         console.log(`❤️  健康检查: http://${host}:${port}/health`);
