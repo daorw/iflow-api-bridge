@@ -1,0 +1,38 @@
+# 依赖
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# 构建输出
+dist/
+*.tsbuildinfo
+
+# 日志
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 测试
+coverage/
+.nyc_output/
+
+# 配置文件（敏感信息）
+iflow-api.config.json
+.iflow-api.json
