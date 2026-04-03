@@ -12,23 +12,14 @@ import type {
   ToolCall,
 } from './types.js';
 
-/**
- * 生成唯一 ID
- */
 export function generateId(): string {
   return `chatcmpl-${Date.now().toString(36)}${Math.random().toString(36).substring(2, 10)}`;
 }
 
-/**
- * 获取当前时间戳
- */
 export function getTimestamp(): number {
   return Math.floor(Date.now() / 1000);
 }
 
-/**
- * 将 OpenAI 消息格式转换为 iFlow 文本格式
- */
 export function messagesToIFlowPrompt(messages: ChatCompletionMessage[]): string {
   return messages.map(msg => {
     if (typeof msg.content === 'string') {
@@ -38,10 +29,6 @@ export function messagesToIFlowPrompt(messages: ChatCompletionMessage[]): string
   }).join('\n\n');
 }
 
-/**
- * 提取 System 消息和最后一条 User 消息
- * 用于上下文管理
- */
 export function extractMessages(messages: ChatCompletionMessage[]): {
   systemMessage: string | undefined;
   userMessage: string;
@@ -62,9 +49,6 @@ export function extractMessages(messages: ChatCompletionMessage[]): {
   return { systemMessage, userMessage };
 }
 
-/**
- * 创建流式响应块
- */
 export function createStreamChunk(
   id: string,
   model: string,
@@ -86,9 +70,6 @@ export function createStreamChunk(
   };
 }
 
-/**
- * 创建完整响应
- */
 export function createCompletionResponse(
   id: string,
   model: string,
@@ -115,17 +96,10 @@ export function createCompletionResponse(
   };
 }
 
-/**
- * 估算 token 数量（简化版）
- */
 export function estimateTokens(text: string): number {
-  // 简化估算：假设平均每 4 个字符一个 token
   return Math.ceil(text.length / 4);
 }
 
-/**
- * 计算使用量
- */
 export function calculateUsage(prompt: string, completion: string): UsageInfo {
   const promptTokens = estimateTokens(prompt);
   const completionTokens = estimateTokens(completion);
@@ -137,30 +111,28 @@ export function calculateUsage(prompt: string, completion: string): UsageInfo {
   };
 }
 
-/**
- * SSE 格式化
- */
 export function formatSSE(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
 
-/**
- * SSE 结束标记
- */
 export const SSE_DONE = 'data: [DONE]\n\n';
 
 /**
- * 支持的模型列表
+ * iFlow 支持的模型列表
+ * 基于用户实际的 iflow CLI 配置
  */
 export const AVAILABLE_MODELS = [
-  { id: 'iflow-default', name: 'iFlow Default' },
-  { id: 'iflow-claude', name: 'iFlow Claude' },
-  { id: 'iflow-gpt-4', name: 'iFlow GPT-4' },
+  { id: 'glm-4.7', name: 'GLM-4.7 (Default)' },
+  { id: 'iflow-rome-30ba3b', name: 'iFlow-ROME-30BA3B (Preview)' },
+  { id: 'deepseek-v3.2', name: 'DeepSeek-V3.2' },
+  { id: 'glm-5', name: 'GLM-5' },
+  { id: 'qwen3-coder-plus', name: 'Qwen3-Coder-Plus' },
+  { id: 'kimi-k2-thinking', name: 'Kimi-K2-Thinking' },
+  { id: 'minimax-m2.5', name: 'MiniMax-M2.5' },
+  { id: 'kimi-k2.5', name: 'Kimi-K2.5' },
+  { id: 'kimi-k2-0905', name: 'Kimi-K2-0905' },
 ];
 
-/**
- * 获取默认模型 ID
- */
 export function getDefaultModel(): string {
-  return 'kimi-k2.5';
+  return 'glm-4.7';
 }
