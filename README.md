@@ -14,7 +14,7 @@
 ## 安装
 
 ```bash
-npm install -g @iflow-ai/iflow-api-bridge
+npm install -g @userdaoo/iflow-api-bridge
 ```
 
 ## 快速开始
