@@ -163,6 +163,47 @@ export IFLOW_LOG_LEVEL=INFO
 - Node.js >= 22
 - iFlow CLI (必须已安装并可运行 `iflow` 命令)
 
+## 发布到 npm
+
+### 前提条件
+
+- 已登录 npm 账号: `npm login`
+- 拥有包的发布权限
+
+### 发布步骤
+
+```bash
+# 1. 确保工作区干净
+git status
+
+# 2. 构建项目
+npm run build
+
+# 3. 检查当前版本
+npm version
+
+# 4. 如果版本已存在，更新 package.json 中的版本号
+# 例如: 0.1.3 -> 0.1.4
+
+# 5. 发布到 npm（公开访问）
+npm publish --access public
+
+# 6. 提交版本变更并推送
+git add package.json
+git commit -m "bump version to x.x.x"
+git push
+```
+
+### 检查发布结果
+
+```bash
+# 查看包信息
+npm view @userdaoo/iflow-api-bridge
+
+# 查看最新版本
+npm view @userdaoo/iflow-api-bridge version
+```
+
 ## License
 
 MIT
