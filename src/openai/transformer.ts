@@ -29,6 +29,10 @@ export function messagesToIFlowPrompt(messages: ChatCompletionMessage[]): string
   }).join('\n\n');
 }
 
+/**
+ * 提取 System 消息和 User 消息
+ * 兼容 opencode 的非标准格式（role 可能不是 user，但包含实际请求内容）
+ */
 export function extractMessages(messages: ChatCompletionMessage[]): {
   systemMessage: string | undefined;
   userMessage: string;
@@ -36,6 +40,7 @@ export function extractMessages(messages: ChatCompletionMessage[]): {
   let systemMessage: string | undefined;
   let userMessage = '';
 
+  // 第一步：查找标准格式的 system 和 user 消息
   for (const msg of messages) {
     if (typeof msg.content !== 'string') continue;
 
@@ -43,6 +48,27 @@ export function extractMessages(messages: ChatCompletionMessage[]): {
       systemMessage = msg.content;
     } else if (msg.role === 'user') {
       userMessage = msg.content;
+    }
+  }
+
+  // 第二步：如果没有找到 user 消息，尝试其他角色（developer, assistant 等）
+  if (!userMessage) {
+    for (const msg of messages) {
+      if (typeof msg.content !== 'string') continue;
+      if (msg.role !== 'system' && msg.content.trim()) {
+        userMessage = msg.content;
+        break;
+      }
+    }
+  }
+
+  // 第三步：如果还是没有，拼接所有非 system 消息
+  if (!userMessage) {
+    const nonSystemContents = messages
+      .filter(msg => msg.role !== 'system' && typeof msg.content === 'string')
+      .map(msg => msg.content);
+    if (nonSystemContents.length > 0) {
+      userMessage = nonSystemContents.join('\n\n');
     }
   }
 
@@ -119,7 +145,7 @@ export const SSE_DONE = 'data: [DONE]\n\n';
 
 /**
  * iFlow 支持的模型列表
- * 基于用户实际的 iflow CLI 配置
+ * 基于用户实际的 iFlow CLI 配置
  */
 export const AVAILABLE_MODELS = [
   { id: 'glm-4.7', name: 'GLM-4.7 (Default)' },
